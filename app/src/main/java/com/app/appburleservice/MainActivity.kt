@@ -19,23 +19,29 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import com.app.appburleservice.ui.theme.AppBurleServiceTheme
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.tasks.OnCompleteListener
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
-import android.util.Log
 import android.content.Intent
 import android.net.Uri
-import android.content.ActivityNotFoundException
-import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Button
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.activity.OnBackPressedCallback
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material3.Icon
 
 data class Report(
     val clientName: String,
-    val technicianName: String,
     val observation: String,
     val date: String,
     val time: String,
@@ -53,6 +59,7 @@ var colorButtonGlobal = Color(0xF026A641)
 var colorButtonHoverGlobal = Color(0xF039D353)
 
 class MainActivity : ComponentActivity() {
+
     private val requestPermissionLauncher = registerForActivityResult(RequestPermission()) { isGranted: Boolean ->
         if (isGranted) {
             // Permissão concedida, você pode obter a localização aqui
@@ -77,7 +84,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Solicitar permissão de localização
         requestPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+
+        // Configurar o comportamento do botão de "voltar" na MainActivity
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // Navega para a LoginActivity
+                val intent = Intent(this@MainActivity, LoginActivity::class.java)
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                startActivity(intent)
+
+                // Aplica a animação de transição
+                overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+            }
+        })
     }
 }
 
@@ -86,15 +107,22 @@ fun MainContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val locationClient = LocationServices.getFusedLocationProviderClient(context)
 
-    val clientNameField = remember { mutableStateOf("") }
-    val technicianNameField = remember { mutableStateOf("") }
     val observationField = remember { mutableStateOf("") }
-
     val errorMessage = remember { mutableStateOf<String?>(null) }
     val successMessage = remember { mutableStateOf<String?>(null) }
 
+    // Estado para o Dropdown
+    val isDropdownExpanded = remember { mutableStateOf(false) }
+    val selectedOption = remember { mutableStateOf("Selecione um cliente") }
+    val options = listOf("%{Test-client}% 1", "%{Test-client}% 2", "%{Test-client}% 3", "%{Test-client}% 4", "%{Test-client}% 5", "%{Test-client}% 6", "%{Test-client}% 7", "%{Test-client}% 8", "%{Test-client}% 9", "%{Test-client}% 10", "%{Test-client}% 11", "%{Test-client}% 12", "%{Test-client}% 13", "%{Test-client}% 14", "%{Test-client}% 15")
+
+    // Estado para o AlertDialog
+    val showDialog = remember { mutableStateOf(false) }
+    val reportContent = remember { mutableStateOf("") }
+
+    // Função para obter localização atual
     fun getCurrentLocation(onLocationReceived: (latitude: Double, longitude: Double) -> Unit) {
-        locationClient.lastLocation.addOnCompleteListener(OnCompleteListener { task ->
+        locationClient.lastLocation.addOnCompleteListener { task ->
             if (task.isSuccessful && task.result != null) {
                 val location = task.result
                 val latitude = location.latitude
@@ -103,7 +131,7 @@ fun MainContent(modifier: Modifier = Modifier) {
             } else {
                 // Trate erros aqui se necessário
             }
-        })
+        }
     }
 
     @Composable
@@ -115,35 +143,20 @@ fun MainContent(modifier: Modifier = Modifier) {
             Button(
                 onClick = onClick,
                 shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BackgroundColorGlobal, contentColor = androidx.compose.ui.graphics.Color.White),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = BackgroundColorGlobal,
+                ),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(16.dp)
             ) {
-                Text(text = "Suporte")
+                Text(text = "Suporte", fontSize = 16.sp, color = textColorGlobal)
             }
         }
     }
 
-    @Composable
-    fun AppFooter() {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .background(BackgroundColorGlobal),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Copyright © 2024 Vallis. All Rights Reserved",
-                color = Color.White,
-                fontSize = 10.sp
-            )
-        }
-    }
-
     fun generateReport() {
-        if (clientNameField.value.isBlank() || technicianNameField.value.isBlank() || observationField.value.isBlank()) {
+        // Validação de campos
+        if (observationField.value.isBlank() || selectedOption.value == "Selecione um cliente") {
             errorMessage.value = "Por favor, preencha todos os campos."
             successMessage.value = null
             return
@@ -153,10 +166,13 @@ fun MainContent(modifier: Modifier = Modifier) {
         val formattedDate = currentDateTime.format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
         val formattedTime = currentDateTime.format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
+        // Obtém o nome do funcionário (usuário)
+        val activity = context as? MainActivity
+        val employeeName = activity?.intent?.getStringExtra("USERNAME") ?: "Nome do Funcionário"
+
         getCurrentLocation { latitude, longitude ->
             val report = Report(
-                clientName = clientNameField.value,
-                technicianName = technicianNameField.value,
+                clientName = selectedOption.value,
                 observation = observationField.value,
                 date = formattedDate,
                 time = formattedTime,
@@ -164,25 +180,27 @@ fun MainContent(modifier: Modifier = Modifier) {
                 longitude = longitude
             )
 
-            Log.d("GenerateReport", "--------------------------------------")
-            Log.d("GenerateReport", "Relatório Gerado:")
-            Log.d("GenerateReport", "Nome do Cliente: ${report.clientName}")
-            Log.d("GenerateReport", "Nome do Técnico: ${report.technicianName}")
-            Log.d("GenerateReport", "Detalhes do serviço: ${report.observation}")
-            Log.d("GenerateReport", "Data: ${report.date}")
-            Log.d("GenerateReport", "Hora: ${report.time}")
-            Log.d("GenerateReport", "Latitude: ${report.latitude}")
-            Log.d("GenerateReport", "Longitude: ${report.longitude}")
-            Log.d("GenerateReport", "--------------------------------------")
+            // Exibir no AlertDialog
+            reportContent.value = """
+            Nome do Funcionário: $employeeName
+            Nome do Cliente: ${report.clientName}
+            Detalhes do serviço: ${report.observation}
+            Data: ${report.date}
+            Hora: ${report.time}
+            Latitude: ${report.latitude}
+            Longitude: ${report.longitude}
+            """.trimIndent()
+
+            showDialog.value = true
 
             errorMessage.value = null
             successMessage.value = "Relatório enviado com sucesso!"
-            clientNameField.value = ""
-            technicianNameField.value = ""
             observationField.value = ""
+            selectedOption.value = "Selecione um cliente" // Resetar seleção
         }
     }
 
+    // Timeout para mensagens de sucesso e erro
     LaunchedEffect(successMessage.value, errorMessage.value) {
         if (successMessage.value != null) {
             delay(5000) // 5 segundos
@@ -194,74 +212,68 @@ fun MainContent(modifier: Modifier = Modifier) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
         Column(
-            modifier = modifier
+            modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
                 Greeting()
-                Spacer(modifier = Modifier.height(14.dp))
-
-                TextField(
-                    value = clientNameField.value,
-                    onValueChange = { newValue ->
-                        if (newValue.length <= 100) {
-                            clientNameField.value = newValue
-                        }
-                    },
-                    label = { Text("Nome do Cliente") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.White, shape = RoundedCornerShape(8.dp)),
-                    colors = TextFieldDefaults.colors(
-                        focusedTextColor = textColorGlobal,
-                        unfocusedTextColor = textColorGlobal,
-                        focusedContainerColor = colorFieldGlobal,
-                        unfocusedContainerColor = colorFieldGlobal,
-                        focusedIndicatorColor = borderColorGlobal,
-                        unfocusedIndicatorColor = borderColorGlobal,
-                        focusedLabelColor = labelColorGlobal,
-                        unfocusedLabelColor = labelColorGlobal,
-                        cursorColor = cursorColorGlobal
-                    ),
-                    shape = RoundedCornerShape(7.dp),
-                    singleLine = true
-                )
-
                 Spacer(modifier = Modifier.height(16.dp))
 
-                TextField(
-                    value = technicianNameField.value,
-                    onValueChange = { newValue ->
-                        if (newValue.length <= 100) {
-                            technicianNameField.value = newValue
-                        }
-                    },
-                    label = { Text("Nome do Técnico") },
+                // Componente para seleção de cliente
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.White, shape = RoundedCornerShape(8.dp)),
-                    colors = TextFieldDefaults.colors(
-                        focusedTextColor = textColorGlobal,
-                        unfocusedTextColor = textColorGlobal,
-                        focusedContainerColor = colorFieldGlobal,
-                        unfocusedContainerColor = colorFieldGlobal,
-                        focusedIndicatorColor = borderColorGlobal,
-                        unfocusedIndicatorColor = borderColorGlobal,
-                        focusedLabelColor = labelColorGlobal,
-                        unfocusedLabelColor = labelColorGlobal,
-                        cursorColor = cursorColorGlobal
-                    ),
-                    shape = RoundedCornerShape(7.dp),
-                    singleLine = true
-                )
+                        .background(colorFieldGlobal, shape = RoundedCornerShape(8.dp))
+                        .height(if (isDropdownExpanded.value) 200.dp else 56.dp)
+                        .clickable {
+                            isDropdownExpanded.value = !isDropdownExpanded.value
+                        }
+                ) {
+                    Text(
+                        text = selectedOption.value,
+                        modifier = Modifier.padding(16.dp),
+                        color = Color.White,
+                        fontSize = 14.sp
+                    )
+
+                    if (isDropdownExpanded.value) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(colorFieldGlobal, shape = RoundedCornerShape(8.dp))
+                                .height(200.dp)
+                        ) {
+                            LazyColumn {
+                                items(options) { option ->
+                                    Text(
+                                        text = option,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                selectedOption.value = option
+                                                isDropdownExpanded.value = false
+                                            }
+                                            .padding(16.dp)
+                                            .background(colorFieldGlobal),
+                                        color = textColorGlobal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -272,10 +284,10 @@ fun MainContent(modifier: Modifier = Modifier) {
                             observationField.value = newValue
                         }
                     },
-                    label = { Text("Detalhes do Serviço:") },
+                    label = { Text("Observação:", color = textColorGlobal, fontSize = 14.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.White, shape = RoundedCornerShape(8.dp)),
+                        .background(colorFieldGlobal, shape = RoundedCornerShape(8.dp)),
                     colors = TextFieldDefaults.colors(
                         focusedTextColor = textColorGlobal,
                         unfocusedTextColor = textColorGlobal,
@@ -287,18 +299,17 @@ fun MainContent(modifier: Modifier = Modifier) {
                         unfocusedLabelColor = labelColorGlobal,
                         cursorColor = cursorColorGlobal
                     ),
-                    shape = RoundedCornerShape(7.dp),
-                    maxLines = 10,
-                    minLines = 5
+                    shape = RoundedCornerShape(8.dp),
+                    minLines = 5,
+                    maxLines = 10
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 if (errorMessage.value != null) {
                     Text(
                         text = errorMessage.value!!,
                         color = Color.Red,
-                        modifier = Modifier.padding(bottom = 16.dp),
                         fontSize = 12.sp,
                     )
                 }
@@ -307,13 +318,14 @@ fun MainContent(modifier: Modifier = Modifier) {
                     Text(
                         text = successMessage.value!!,
                         color = Color.Green,
-                        modifier = Modifier.padding(bottom = 16.dp),
                         fontSize = 12.sp,
                     )
                 }
 
                 val interactionSource = remember { MutableInteractionSource() }
                 val isPressed by interactionSource.collectIsPressedAsState()
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
                     onClick = {
@@ -327,11 +339,10 @@ fun MainContent(modifier: Modifier = Modifier) {
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
                         .height(50.dp)
-                        .width(250.dp)
+                        .width(200.dp)
                 ) {
-                    Text(text = "Enviar relatório")
+                    Text(text = "Enviar relatório", fontSize = 18.sp, color = textColorGlobal)
                 }
-
             }
 
             AppFooter()
@@ -340,17 +351,24 @@ fun MainContent(modifier: Modifier = Modifier) {
         SupportButton(onClick = {
             val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
                 data = Uri.parse("mailto:vallissuporte@gmail.com")
+                putExtra(Intent.EXTRA_SUBJECT, "Suporte necessário")
             }
-            try {
-                Log.d("SupportButton", "Starting email intent")
-
-                context.startActivity(Intent.createChooser(emailIntent, "Suporte"))
-            } catch (e: ActivityNotFoundException) {
-                Log.e("SupportButton", "No email app found", e)
-                // Exibe uma mensagem para o usuário, pois não há aplicativos de e-mail disponíveis
-                Toast.makeText(context, "Nenhum aplicativo de e-mail encontrado", Toast.LENGTH_SHORT).show()
-            }
+            context.startActivity(emailIntent)
         })
+
+        // Exibe o AlertDialog se showDialog for verdadeiro
+        if (showDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showDialog.value = false },
+                title = { Text("Relatório Gerado") },
+                text = { Text(reportContent.value) },
+                confirmButton = {
+                    Button(onClick = { showDialog.value = false }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -362,6 +380,29 @@ fun MainContentPreview() {
 
 @Composable
 fun Greeting() {
-    // Adicione o conteúdo do Greeting aqui
-}
+    // Recebe o contexto e o Intent
+    val context = LocalContext.current
+    val activity = context as? MainActivity
+    val userName = activity?.intent?.getStringExtra("USERNAME") ?: "Nome do Usuário" // Pega o nome do usuário do Intent
 
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Filled.AccountCircle,
+                contentDescription = "Avatar",
+                modifier = Modifier.size(64.dp)
+            )
+            Text(userName, color = textColorGlobal, fontSize = 16.sp) // Exibe o nome do usuário
+
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
